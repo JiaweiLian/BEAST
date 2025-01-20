@@ -1,0 +1,30 @@
+Directory 'logs/adv_tokens/' already exists.
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:04,  2.16s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:04<00:02,  2.08s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  1.98s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  2.02s/it]
+['mistral_end100_threshold=0.0_budget=15_beast', '/share/jiawei/models/LLMs/DIR/mistralai/Mistral-7B-Instruct-v0.2']
+{'top_p': 1.0, 'top_k': None, 'temperature': 1.0, 'new_gen_length': 1000, 'k1': 15, 'k2': 15, 'ngram': 1, 'multi_model_list': None}
+Loaded file: 100
+
+mistral
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:04,  2.37s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:04<00:02,  2.44s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  2.30s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  2.33s/it]0
+Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+Starting from v4.46, the `logits` model output will have the same type as the model (except at train time, where it will always be FP32)
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+0Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
+
+Directory 'logs/evaluation/' already exists.

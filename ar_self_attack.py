@@ -12,23 +12,35 @@ def list_of_strings(arg):
 parser = argparse.ArgumentParser()
 parser.add_argument('--k1', type=int, default=15)
 parser.add_argument('--k2', type=int, default=15)
-parser.add_argument('--length', type=int, default=40)
+parser.add_argument('--length', type=int, default=1000)
 parser.add_argument('--model', type=str, default='vicuna7b')
 parser.add_argument('--log', type=int, default=1)
 parser.add_argument('--target', type=int, default=1)
 parser.add_argument('--budget', type=int, help='per sample attack budget in seconds', default=600000)
-parser.add_argument('--DIR', type=str, default='data/')
+parser.add_argument('--DIR', type=str, default='logs/adv_tokens/')
 parser.add_argument('--begin', type=int, default=0)
 parser.add_argument('--end', type=int, default=100)
 parser.add_argument('--ngram', type=int, default=1)
 parser.add_argument('--multi_model_list', type=list_of_strings, default=None)
-
+parser.add_argument('--semantic_threshold', type=float, default=0.01)
+parser.add_argument('--attack_method', type=str, default='abs')
 
 args = parser.parse_args() 
 
-# load dataset
+if args.attack_method == 'beast':
+    args.semantic_threshold = 0.00
+
+# load dataset: harmful_hehaviors[begin:end]
 begin, end = args.begin, args.end
 
+if not os.path.exists(args.DIR):
+    os.makedirs(args.DIR)
+    print(f"Directory '{args.DIR}' created.")
+else:
+    print(f"Directory '{args.DIR}' already exists.")
+
+# target=1 ensures jailbreak (targeted) attack is performed
+# Passing target=0 will run the hallucination (untargeted) attack on the TruthfulQA dataset.
 if args.target == 1:
     data = pandas.read_csv("data/harmful_behaviors.csv")
     prompts = list(data['goal'])[begin: end]
@@ -42,23 +54,30 @@ else:
 
 # define the LLM attack model
 if 'vicuna7b' in args.model.lower():
-    name = ['vicuna', 'lmsys/vicuna-7b-v1.5']
+    name = ['vicuna7b', '/home/jiawei/models/LLMs/DIR/vicuna/vicuna-7b-v1.3']
+    max_bs = 50
 elif 'vicuna13b' in args.model.lower():
-    name = ['vicuna13b', 'lmsys/vicuna-13b-v1.5']
+    name = ['vicuna13b', '/home/jiawei/models/LLMs/DIR/vicuna/vicuna-13b-v1.3']
+    max_bs = 50
 elif 'mistral' in args.model.lower():
-    name = ['mistral', 'mistralai/Mistral-7B-Instruct-v0.2']
+    name = ['mistral', '/home/jiawei/models/LLMs/DIR/mistralai/Mistral-7B-Instruct-v0.2']
+    max_bs = 50
+elif 'llama7b' in args.model.lower():
+    name = ['llama7b', '/home/jiawei/models/LLMs/DIR/llama/Llama-2-7b-chat-hf']
+    max_bs = 50
+elif 'llama13b' in args.model.lower():
+    name = ['llama13b', '/home/jiawei/models/LLMs/DIR/llama/Llama-2-13b-chat-hf']
+    max_bs = 50
     
-ar = AutoRegressor(name[1], budget=args.budget)
+ar = AutoRegressor(name[1], budget=args.budget, attack_method=args.attack_method)
 
 # set attack parameters
 params = {"top_p": 1., 'top_k': None, 'temperature': 1.,\
         'new_gen_length': args.length, 'k1': args.k1, 'k2': args.k2, 'ngram': args.ngram,\
         'multi_model_list': args.multi_model_list}
-
-max_bs = 50
     
 # set the log file name
-name[0] += f"_k1={params['k1']}_k2={params['k2']}_length={params['new_gen_length']}_{begin}_{end}_ngram={args.ngram}"
+name[0] += f"_end{end}_threshold={args.semantic_threshold}_budget={args.budget}_{args.attack_method}"
 if args.target == 0:
     name[0] += "_untargeted"
 if args.multi_model_list != None:
@@ -88,7 +107,7 @@ for i in range(len(Log), len(prompts)):
     
     # perform attack
     start = time.time()
-    y = ar.self_attack_chat_batch(prompts=prompts[i:i+1], target=targets[i], **params)    
+    y = ar.self_attack_chat_batch(prompts=prompts[i:i+1], target=targets[i], **params, semantic_threshold=args.semantic_threshold)    
     Time.append(time.time() - start)
     
     # update log

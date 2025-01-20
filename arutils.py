@@ -5,21 +5,28 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch.nn.functional as F
 import time
 from concurrent.futures import ThreadPoolExecutor
+from torch.nn.utils.rnn import pad_sequence
+
 
 class AutoRegressor():
     
     @torch.no_grad()
-    def __init__(self, name="lmsys/vicuna-7b-v1.5", budget=None):
+    def __init__(self, name="lmsys/vicuna-7b-v1.5", budget=None, attack_method='abs'):
         
         self.name = name
+        self.attack_method = attack_method
         self.tokenizer = AutoTokenizer.from_pretrained(self.name)
         self.model = AutoModelForCausalLM.from_pretrained(self.name, device_map="auto", torch_dtype=torch.float16, use_cache=False, low_cpu_mem_usage=True)
         self.multimodel = None
         
         # keep do_sample = False when temperature is None
+        # do_sample refers to the method of selecting the next word in a sequence based on a probability distribution rather than always choosing the most likely word.
         self.model.generation_config.do_sample = True if (self.model.generation_config.temperature != None) else False
         self.chat_format = ChatFormat(name)   
-        self.sample = sample_top_p
+        if self.attack_method == 'abs':
+            self.sample = adaptive_sample_top_p
+        elif self.attack_method == 'beast':
+            self.sample = sample_top_p
         self.budget = budget
         
         # Correct error in Vicuna HF since LLaMA corrected it
@@ -27,7 +34,9 @@ class AutoRegressor():
         if "vicuna" in name.lower(): 
             self.model.generation_config.top_p = 0.9
             self.model.generation_config.temperature = 0.6
-        
+        if "llama" in name.lower():
+            self.model = self.model.bfloat16()
+
         if self.tokenizer.pad_token is None:   
             self.tokenizer.pad_token = "[PAD]"
             
@@ -49,7 +58,8 @@ class AutoRegressor():
             logits: stacked logit value sequences (in batch) for generated token positions
             tokens: output token id sequences in batch
         """
-                    
+
+        # Ensure all elements in the prompt_tokens list have the same length.            
         assert max(len(i) for i in prompt_tokens) == min(len(i) for i in prompt_tokens), "Need to pad the batch"
         if not isinstance(prompt_tokens, torch.Tensor):
             prompt_tokens = torch.as_tensor(prompt_tokens)
@@ -76,7 +86,7 @@ class AutoRegressor():
     
     @torch.no_grad()
     def self_attack_chat_batch(self, prompts, k1=15, k2=15, lookahead_length=10, n_trials=1, top_p=None, top_k=None, temperature=None,\
-        new_gen_length=10, target=None, verbose=1, interactive=0, ngram=1, multi_model_list=None):
+        new_gen_length=10, target=None, verbose=1, interactive=1, ngram=1, multi_model_list=None, semantic_threshold=0.01):
         
         """
         Self attack to generate adversarial input prompts, where the first few tokens are given `prompt` and the rest
@@ -114,8 +124,15 @@ class AutoRegressor():
             self.model.generation_config.do_sample = False
         
         system = ("{}{}{}".format(*self.chat_format.system)) if (self.chat_format.system[1] != "") else ""
-        begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0], add_special_tokens=False)
-        end_inst_token = self.tokenizer.encode(self.chat_format.user[1] + self.chat_format.assistant[0], add_special_tokens=False)
+        if "vicuna" in self.name.lower():
+            begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0], add_special_tokens=False)
+            end_inst_token = self.tokenizer.encode(self.chat_format.user[1] + self.chat_format.assistant[0], add_special_tokens=False)
+        elif "mistral" in self.name.lower():
+            begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system, add_special_tokens=False)
+            end_inst_token = self.tokenizer.encode(self.chat_format.user[1], add_special_tokens=False)
+        elif "llama" in self.name.lower():
+            begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system, add_special_tokens=False)
+            end_inst_token = self.tokenizer.encode(self.chat_format.user[1], add_special_tokens=False)
         
         max_bs, bs = self.max_bs, len(prompts) 
         prompt_tokens = []
@@ -128,7 +145,12 @@ class AutoRegressor():
         # assume only 1 round of user-assistant dialog
         # tokenizer prompts
         for prompt in prompts: 
-            prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0] + prompt.strip(" "), add_special_tokens=False))
+            if "vicuna" in self.name.lower():
+                prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0] + prompt.strip(" "), add_special_tokens=False))
+            elif "mistral" in self.name.lower():
+                prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system + prompt.strip(" "), add_special_tokens=False))
+            elif "llama" in self.name.lower():
+                prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system + prompt.strip(" "), add_special_tokens=False))
 
         logits, prompt_length = [], len(prompt_tokens[0])
         for b in range(0, len(prompt_tokens), max_bs):
@@ -136,7 +158,7 @@ class AutoRegressor():
         logits = torch.cat(logits, dim=0)
 
         # `curr_tokens` maintains a list[list[list]], (# batch_size) x (# beam candidates) x (# tokens) 
-        curr_tokens = self.sample(torch.softmax(logits[:, 0], dim=-1), top_p, return_tokens=k1)[:, : k1]
+        curr_tokens = self.sample(torch.softmax(logits[:, 0], dim=-1), top_p, return_tokens=k1, semantic_threshold=semantic_threshold)[:, : k1]
         curr_tokens = [[i2 + [j.cpu().numpy().tolist()] for j in i1] for (i1, i2) in zip(curr_tokens, prompt_tokens)]
         
         start_time = time.time()
@@ -147,19 +169,20 @@ class AutoRegressor():
             if self.budget != None and (time.time() - start_time) > self.budget:
                 break
             
-            if verbose == 1: print(f"{l+2:3d}/{new_gen_length * ngram:3d}, Time: {(time.time()-start_time)/60:3.2f}, Size: {len(curr_tokens[0][0])}")            
+            if verbose == 1: print(f"{l+1:3d}/{new_gen_length * ngram:3d}, Time: {(time.time()-start_time):3.2f} seconds, Size: {len(curr_tokens[0][0])}")            
             curr_tokens_ = [item for sublist in curr_tokens for item in sublist] # (# batch_size x # beam candidates) x (# tokens) 
 
             next_tokens = []
             for b in range(0, len(curr_tokens_), max_bs):
                 logits = self.generate_n_tokens_batch(curr_tokens_[b: b+max_bs], max_gen_len=1, temperature=temperature, top_p=top_p, top_k=top_k)[0]
-                next_tokens_ = self.sample(torch.softmax(logits[:, 0], dim=-1) , top_p, return_tokens=k2)[:, : k2]
+                next_tokens_ = self.sample(torch.softmax(logits[:, 0], dim=-1) , top_p, return_tokens=k2, semantic_threshold=semantic_threshold)[:, : k2]
                 next_tokens.extend([[j.cpu().numpy().tolist() for j in i] for i in next_tokens_])
 
             score_prompt_tokens = []
             for i in range(len(curr_tokens_)):
                 for j in range(len(next_tokens[i])):
-                    score_prompt_tokens.append(curr_tokens_[i] + [next_tokens[i][j]]) 
+                    if next_tokens[i][j] != -1:
+                        score_prompt_tokens.append(curr_tokens_[i] + [next_tokens[i][j]]) 
             
             if l % ngram != 0:
                 curr_tokens = copy.deepcopy([[score_prompt_tokens[ii] for ii in range(0, len(score_prompt_tokens), k1)]])
@@ -294,16 +317,21 @@ class ChatFormat():
         
         if "vicuna" in name.lower():
             self.system = ["", \
-                "A chat between a curious user and an artificial intelligence assistant. " \
-                "The assistant gives helpful, detailed, and polite answers to the user's questions. ", \
-                ""]
+                "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. ", \
+                ""]  # system message
             self.user = ["USER: ", ""]
             self.assistant = [" ASSISTANT:", ""]
             self.sep = ["", ""]
             
         elif "mistral" in name.lower():
-            self.system = ["<<SYS>>\n", "", "\n<</SYS>>\n\n"]
+            self.system = ["<<SYS>>\n", "Always assist with care, respect, and truth. Respond with utmost utility yet securely. Avoid harmful, unethical, prejudiced, or negative content. Ensure replies promote fairness and positivity.", "\n<</SYS>>\n\n"]
             self.user = ["[INST] ", " [/INST]"]
+            self.assistant = ["", ""]
+            self.sep = ["<s>", "</s>"]
+
+        elif "llama" in name.lower():
+            self.system = ["<<SYS>>\n", "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "\n<</SYS>>\n\n"]
+            self.user = ["[INST] ", "[/INST]"]
             self.assistant = ["", ""]
             self.sep = ["<s>", "</s>"]
             
@@ -315,6 +343,8 @@ class ChatFormat():
             if "vicuna" in self.name.lower():
                 x[i] = "{}{}{}{}{}".format(self.sep[0], system, self.user[0], x[i].strip(" "), self.assistant[0])
             elif "mistral" in self.name.lower():
+                x[i] = "{}{}{}{}{}".format(self.sep[0], self.user[0], system, x[i].strip(" "), self.user[1])
+            elif "llama" in self.name.lower():
                 x[i] = "{}{}{}{}{}".format(self.sep[0], self.user[0], system, x[i].strip(" "), self.user[1])
         return x
     
@@ -410,7 +440,7 @@ class MultiModel():
     
 
 @torch.no_grad()
-def sample_top_p(probs, p, return_tokens=0):
+def sample_top_p(probs, p, return_tokens=0, semantic_threshold=0.01):
     """
     Masks out the bottom (1-p) fraction from token probabilities,
     and returns the next_token / all probability indices.
@@ -429,3 +459,40 @@ def sample_top_p(probs, p, return_tokens=0):
     next_token = torch.multinomial(probs_sort, num_samples=max(1, return_tokens))
     next_token = torch.gather(probs_idx, -1, next_token)
     return next_token
+
+@torch.no_grad()
+def adaptive_sample_top_p(probs, p, return_tokens=0, semantic_threshold=0.01):
+    """
+    Masks out the bottom (1-p) fraction from token probabilities,
+    and returns the next_token / all probability indices.
+    Params:
+        probs: softmax logit values
+        p: top_p
+        return_tokens: no. of tokens returned
+    Return:
+        next_token: set of next tokens
+    """
+    probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
+    mask = probs_sort < semantic_threshold 
+    probs_sort[mask] = 0.0
+    next_tokens = []
+    for i in range(len(probs_sort)):
+        tokens = []
+        for j in range(len(probs_sort[i])):
+            if probs_sort[i][j] == 0.0:
+                break
+            tokens.append(probs_idx[i][j])
+        # tokens = [probs_idx[i][j] for j in range(len(probs_sort[i])) if probs_sort[i][j] > 0.0]
+        if len(tokens) == 0:
+            tokens.append(probs_idx[i][0])
+        next_tokens.append(tokens)
+    
+    if len(next_tokens) == 1:
+        next_tokens = torch.tensor(next_tokens, device='cuda:0')
+    elif len(next_tokens) > 1:
+        stacked_tensors = [torch.stack(tensors) for tensors in next_tokens]
+        next_tokens = pad_sequence(stacked_tensors, batch_first=True, padding_value=-1)
+
+    print(f"Candidate pool width: {(next_tokens != -1).sum().item()}")
+
+    return next_tokens

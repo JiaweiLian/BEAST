@@ -1,24 +1,0 @@
-Directory 'logs/adv_tokens/' already exists.
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:03<00:03,  3.26s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:04<00:00,  2.03s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:04<00:00,  2.22s/it]
-['llama7b_end100_threshold=0.0_budget=30_beast', '/share/jiawei/models/LLMs/DIR/llama/Llama-2-7b-chat-hf']
-{'top_p': 1.0, 'top_k': None, 'temperature': 1.0, 'new_gen_length': 1000, 'k1': 15, 'k2': 15, 'ngram': 1, 'multi_model_list': None}
-Loaded file: 100
-
-llama7b
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:03<00:03,  3.82s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:05<00:00,  2.40s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:05<00:00,  2.62s/it]0
-/home/jiawei/anaconda3/envs/beast/lib/python3.8/site-packages/transformers/generation/configuration_utils.py:601: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.6` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
-  warnings.warn(
-/home/jiawei/anaconda3/envs/beast/lib/python3.8/site-packages/transformers/generation/configuration_utils.py:606: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
-  warnings.warn(
-Starting from v4.46, the `logits` model output will have the same type as the model (except at train time, where it will always be FP32)
-
-0
-0
-0
-0
-0
-0
-0
-0
-0
-Directory 'logs/evaluation/' already exists.

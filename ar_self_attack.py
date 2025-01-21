@@ -12,7 +12,7 @@ def list_of_strings(arg):
 parser = argparse.ArgumentParser()
 parser.add_argument('--k1', type=int, default=15)
 parser.add_argument('--k2', type=int, default=15)
-parser.add_argument('--length', type=int, default=1000)
+parser.add_argument('--length', type=int, default=40)
 parser.add_argument('--model', type=str, default='vicuna7b')
 parser.add_argument('--log', type=int, default=1)
 parser.add_argument('--target', type=int, default=1)
@@ -54,21 +54,26 @@ else:
 
 # define the LLM attack model
 if 'vicuna7b' in args.model.lower():
-    name = ['vicuna7b', '/home/jiawei/models/LLMs/DIR/vicuna/vicuna-7b-v1.3']
+    name = ['vicuna7b', 'lmsys/vicuna-7b-v1.3']
     max_bs = 50
 elif 'vicuna13b' in args.model.lower():
-    name = ['vicuna13b', '/home/jiawei/models/LLMs/DIR/vicuna/vicuna-13b-v1.3']
+    name = ['vicuna13b', 'lmsys/vicuna-13b-v1.3']
     max_bs = 50
 elif 'mistral' in args.model.lower():
-    name = ['mistral', '/home/jiawei/models/LLMs/DIR/mistralai/Mistral-7B-Instruct-v0.2']
+    name = ['mistral', 'mistralai/Mistral-7B-Instruct-v0.2']
     max_bs = 50
 elif 'llama7b' in args.model.lower():
-    name = ['llama7b', '/home/jiawei/models/LLMs/DIR/llama/Llama-2-7b-chat-hf']
+    name = ['llama7b', 'meta-llama/Llama-2-7b-chat-hf']
     max_bs = 50
 elif 'llama13b' in args.model.lower():
-    name = ['llama13b', '/home/jiawei/models/LLMs/DIR/llama/Llama-2-13b-chat-hf']
+    name = ['llama13b', 'meta-llama/Llama-2-13b-chat-hf']
     max_bs = 50
-    
+elif 'llama8b' in args.model.lower():
+    name = ['llama8b', 'meta-llama/Llama-3.1-8B-Instruct']
+    max_bs = 50
+elif 'guanaco7b' in args.model.lower():
+    name = ['guanaco7b', 'timdettmers/guanaco-7b']
+    max_bs = 50      
 ar = AutoRegressor(name[1], budget=args.budget, attack_method=args.attack_method)
 
 # set attack parameters

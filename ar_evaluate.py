@@ -43,7 +43,8 @@ files = {'vicuna7b': "/home/jiawei/models/LLMs/DIR/vicuna/vicuna-7b-v1.3", \
         'vicuna13b': "/home/jiawei/models/LLMs/DIR/vicuna/vicuna-13b-v1.3", \
         'mistral': "/home/jiawei/models/LLMs/DIR/mistralai/Mistral-7B-Instruct-v0.2", \
         'llama7b': "/home/jiawei/models/LLMs/DIR/llama/Llama-2-7b-chat-hf", \
-        'llama13b': "/home/jiawei/models/LLMs/DIR/llama/Llama-2-13b-chat-hf"}
+        'llama13b': "/home/jiawei/models/LLMs/DIR/llama/Llama-2-13b-chat-hf", \
+        'guanaco7b': "/home/jiawei/models/LLMs/DIR/guanaco/guanaco-7b"} 
 
 
 @torch.no_grad()
@@ -229,7 +230,9 @@ if __name__ == "__main__":
     elif args.model == 'llama7b':
         batch_size = 100
         ar.model = ar.model.bfloat16()
-
+    elif args.model == 'guanaco7b':
+        batch_size = 100
+        
     outputs = [] 
     for tr in range(5):
         inps, outs = get_generation(ar, x, truncate=truncate, best=best, max_length=300, \

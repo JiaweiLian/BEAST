@@ -1,12 +1,12 @@
 import torch
 import numpy as np
 import copy
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import torch.nn.functional as F
 import time
 from concurrent.futures import ThreadPoolExecutor
 from torch.nn.utils.rnn import pad_sequence
-
+from peft import PeftModel    
 
 class AutoRegressor():
     
@@ -15,8 +15,26 @@ class AutoRegressor():
         
         self.name = name
         self.attack_method = attack_method
-        self.tokenizer = AutoTokenizer.from_pretrained(self.name)
-        self.model = AutoModelForCausalLM.from_pretrained(self.name, device_map="auto", torch_dtype=torch.float16, use_cache=False, low_cpu_mem_usage=True)
+        if 'guanaco' in name.lower():
+            model_name = 'huggyllama/llama-7b'
+            adapter_name = self.name
+            self.model = AutoModelForCausalLM.from_pretrained(
+                        model_name,
+                        torch_dtype=torch.bfloat16,
+                        device_map="auto",
+                        max_memory= {i: '24000MB' for i in range(torch.cuda.device_count())},
+                        quantization_config=BitsAndBytesConfig(
+                            load_in_4bit=True,
+                            bnb_4bit_compute_dtype=torch.bfloat16,
+                            bnb_4bit_use_double_quant=True,
+                            bnb_4bit_quant_type='nf4'
+                        ),
+                    )
+            self.model = PeftModel.from_pretrained(self.model, adapter_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(self.name, device_map="auto", torch_dtype=torch.float16, use_cache=False, low_cpu_mem_usage=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.name)
         self.multimodel = None
         
         # keep do_sample = False when temperature is None
@@ -34,8 +52,11 @@ class AutoRegressor():
         if "vicuna" in name.lower(): 
             self.model.generation_config.top_p = 0.9
             self.model.generation_config.temperature = 0.6
-        if "llama" in name.lower():
+        elif "llama7b" in name.lower():
             self.model = self.model.bfloat16()
+            self.model = self.model.to(torch.float32) # for fixing end without running in H20
+        elif "guanaco" in name.lower():
+            self.model = self.model.to(torch.float32) # for fixing end without running in H20
 
         if self.tokenizer.pad_token is None:   
             self.tokenizer.pad_token = "[PAD]"
@@ -130,10 +151,15 @@ class AutoRegressor():
         elif "mistral" in self.name.lower():
             begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system, add_special_tokens=False)
             end_inst_token = self.tokenizer.encode(self.chat_format.user[1], add_special_tokens=False)
-        elif "llama" in self.name.lower():
+        elif "llama-2" in self.name.lower():
+            begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system, add_special_tokens=False)
+            end_inst_token = self.tokenizer.encode(self.chat_format.user[1], add_special_tokens=False)        
+        elif "llama-3.1" in self.name.lower():
             begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system, add_special_tokens=False)
             end_inst_token = self.tokenizer.encode(self.chat_format.user[1], add_special_tokens=False)
-        
+        elif "guanaco" in self.name.lower():
+            begin_inst_token = self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0], add_special_tokens=False)
+            end_inst_token = self.tokenizer.encode(self.chat_format.user[1] + self.chat_format.assistant[0], add_special_tokens=False)
         max_bs, bs = self.max_bs, len(prompts) 
         prompt_tokens = []
         
@@ -149,9 +175,12 @@ class AutoRegressor():
                 prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0] + prompt.strip(" "), add_special_tokens=False))
             elif "mistral" in self.name.lower():
                 prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system + prompt.strip(" "), add_special_tokens=False))
-            elif "llama" in self.name.lower():
+            elif "llama-2" in self.name.lower():
                 prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system + prompt.strip(" "), add_special_tokens=False))
-
+            elif "llama-3.1" in self.name.lower():
+                prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + self.chat_format.user[0] + system + prompt.strip(" "), add_special_tokens=False))
+            elif "guanaco" in self.name.lower():
+                prompt_tokens.append(self.tokenizer.encode(self.chat_format.sep[0] + system + self.chat_format.user[0] + prompt.strip(" "), add_special_tokens=False))
         logits, prompt_length = [], len(prompt_tokens[0])
         for b in range(0, len(prompt_tokens), max_bs):
             logits.append(self.generate_n_tokens_batch(prompt_tokens[b: b+max_bs], max_gen_len=1, temperature=temperature, top_p=top_p, top_k=top_k)[0])
@@ -329,12 +358,24 @@ class ChatFormat():
             self.assistant = ["", ""]
             self.sep = ["<s>", "</s>"]
 
-        elif "llama" in name.lower():
+        elif "llama-2" in name.lower():
             self.system = ["<<SYS>>\n", "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "\n<</SYS>>\n\n"]
             self.user = ["[INST] ", "[/INST]"]
             self.assistant = ["", ""]
             self.sep = ["<s>", "</s>"]
-            
+
+        elif "llama-3.1" in name.lower():
+            self.system = ["<<SYS>>\n", "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "\n<</SYS>>\n\n"]
+            self.user = ["[INST] ", "[/INST]"]
+            self.assistant = ["", ""]
+            self.sep = ["<s>", "</s>"]
+
+        elif "guanaco" in name.lower():
+            self.system = ["", "A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.\n", ""]
+            self.user = ["### Human: ", ""]
+            self.assistant = ["### Assistant: ", ""]
+            self.sep = ["", ""]
+
     def prepare_input(self, sens):        
         # assert only one user-assistant dialog
         system = "{}{}{}".format(*self.system) if (self.system[1] != "") else ""
@@ -344,8 +385,10 @@ class ChatFormat():
                 x[i] = "{}{}{}{}{}".format(self.sep[0], system, self.user[0], x[i].strip(" "), self.assistant[0])
             elif "mistral" in self.name.lower():
                 x[i] = "{}{}{}{}{}".format(self.sep[0], self.user[0], system, x[i].strip(" "), self.user[1])
-            elif "llama" in self.name.lower():
+            elif "llama7b" in self.name.lower():
                 x[i] = "{}{}{}{}{}".format(self.sep[0], self.user[0], system, x[i].strip(" "), self.user[1])
+            elif "guanaco" in self.name.lower():
+                x[i] = "{}{}{}{}{}".format(self.sep[0], system, self.user[0], x[i].strip(" "), self.assistant[0])
         return x
     
     def get_prompt(self, sens): # reverse of prepare_input

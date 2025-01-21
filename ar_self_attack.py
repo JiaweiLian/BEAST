@@ -62,16 +62,16 @@ elif 'vicuna13b' in args.model.lower():
 elif 'mistral' in args.model.lower():
     name = ['mistral', 'mistralai/Mistral-7B-Instruct-v0.2']
     max_bs = 50
-elif 'llama7b' in args.model.lower():
+elif 'llama-2' in args.model.lower():
     name = ['llama7b', 'meta-llama/Llama-2-7b-chat-hf']
     max_bs = 50
 elif 'llama13b' in args.model.lower():
     name = ['llama13b', 'meta-llama/Llama-2-13b-chat-hf']
     max_bs = 50
-elif 'llama8b' in args.model.lower():
+elif 'llama-3' in args.model.lower():
     name = ['llama8b', 'meta-llama/Llama-3.1-8B-Instruct']
     max_bs = 50
-elif 'guanaco7b' in args.model.lower():
+elif 'guanaco' in args.model.lower():
     name = ['guanaco7b', 'timdettmers/guanaco-7b']
     max_bs = 50      
 ar = AutoRegressor(name[1], budget=args.budget, attack_method=args.attack_method)

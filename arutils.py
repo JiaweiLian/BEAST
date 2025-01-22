@@ -90,8 +90,8 @@ class AutoRegressor():
             self.concat_index = len(self.tokenizer.encode("\nASSISTANT:")) - 2  
         elif "mistralai/Mistral-7B-Instruct-v0.2" in name:
             self.system = ["<<SYS>>\n", "Always assist with care, respect, and truth. Respond with utmost utility yet securely. Avoid harmful, unethical, prejudiced, or negative content. Ensure replies promote fairness and positivity.", "\n<</SYS>>\n\n"]
-            self.user = ["\n\n[INST] ", " [/INST] "]
-            self.assistant = ["", ""]
+            self.user = ["[INST] ", " [/INST]"]
+            self.assistant = [" ", " "]
             self.sep = ["<s>", "</s>"]
             self.model = self.model.to(torch.float32) # for fixing end without running in H20
             self.tokenizer.chat_template = open('./chat_templates/chat_templates/mistral-instruct.jinja').read().replace('    ', '').replace('\n', '')
